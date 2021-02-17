@@ -2,8 +2,14 @@ import backtrader as bt
 from datetime import datetime
 import glob
 import os
-from strategies import MomentumStrategy
+import MomentumStrategy
+import logging
+import logging.config
 
+logging.config.fileConfig('logging.conf', disable_existing_loggers=False)
+
+# create logger
+log = logging.getLogger(__name__)
 
 cerebro = bt.Cerebro(stdstats=False)
 cerebro.broker.set_coc(True)
@@ -13,7 +19,7 @@ spy = bt.feeds.BacktraderCSVData(dataname='./data/SPY/daily/SPY_daily_2001-02-05
                                  todate=datetime(2021,2,2),
                                  plot=True)
 cerebro.adddata(spy)  # add S&P 500 Index
-tickers = {'AAPL','AMZN','GOOG','TSLA','NVDA','DIS','KO','SQ','UBER','AMD','NIO','GM','PLTR'} #,'TWTR','PLUG','OPEN','CGC','PACB','MSTR'}
+tickers = {'AAPL','AMZN','GOOG','TSLA','NVDA','DIS','KO','SQ','UBER','AMD','NIO','GM','PLTR','PLUG','OPEN','CGC','PACB','MSTR', 'TWTR'}
 
 
 ftype = 'daily'
@@ -38,3 +44,4 @@ cerebro.plot(iplot=False)[0][0]
 print(f"Sharpe: {results[0].analyzers.sharperatio.get_analysis()['sharperatio']:.3f}")
 print(f"Norm. Annual Return: {results[0].analyzers.returns.get_analysis()['rnorm100']:.2f}%")
 print(f"Max Drawdown: {results[0].analyzers.drawdown.get_analysis()['max']['drawdown']:.2f}%")
+

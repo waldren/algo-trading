@@ -25,6 +25,9 @@ import backtrader as bt
 import numpy as np
 from scipy.stats import linregress
 import collections
+import logging
+
+mod_log = logging.getLogger(__name__)
 
 class RepositionTimer(object):
     def __init__(self):
@@ -48,10 +51,14 @@ class RepositionTimer(object):
         return False  # timer disallowed
 
 def momentum_func(ind, period):
+    if (len(period) != 90):
+        mod_log.debug("Period Length: {}".format(len(period)))
     r = np.log(period)
     slope, _, rvalue, _, _ = linregress(np.arange(len(r)), r)
     annualized = (1 + slope) ** 252
-    return annualized * (rvalue ** 2)
+    res = annualized * (rvalue ** 2)
+   # mod_log.debug("Res: {}".format(res))
+    return res
 
 
 class MomentumIndicator(bt.ind.OperationN):
@@ -76,25 +83,40 @@ class MomentumStrategy(bt.Strategy):
         rebal_weekday=5  # rebalance 5 is Friday
     )
 
+    def debug_stocks(self, stocklist):
+        for d in stocklist:
+            mod_log.debug(" {} in stocklist".format(d.p.dataname))
 
     def __init__(self):
+        self.log = logging.getLogger(__name__)
+
         #self.i = 0  # See below as to why the counter is commented out
         self.inds = collections.defaultdict(dict)  # avoid per data dct in for
 
         # Use "self.data0" (or self.data) in the script to make the naming not
         # fixed on this being a "spy" strategy. Keep things generic
         # self.spy = self.datas[0]
-        self.stocks = self.datas[1:]
+        # self.stocks = self.datas[1:]
+        # Only add datafeeds with adequate length
+        stocks_to_add = []
+        for d in self.datas[1:]:
+            if (len(d.array) > self.p.momentum_period):
+                stocks_to_add.append(d)
+            else:
+                self.log.debug("Remove short stock datafeed: {} with len {}".format(d.p.dataname, len(d.array)))
+        self.stocks = stocks_to_add
+        self.log.debug("{} total stocks".format(len(self.stocks)))
+        self.debug_stocks(self.stocks)
 
         # Again ... remove the name "spy"
         self.idx_mav = self.p.movav(self.data0, period=self.p.idx_period)
-        for d in self.stocks:
+        stocks_too_short = []
+        for i, d in enumerate(self.stocks):            
+            self.log.debug("(i={}) Processing Datafeed: {} with len {}".format(i, d.p.dataname, len(d.array)))
             self.inds[d]['mom'] = self.p.momentum(d, period=self.p.momentum_period)
             self.inds[d]['mav'] = self.p.movav(d, period=self.p.stock_period)
             self.inds[d]['vol'] = self.p.volatr(d, period=self.p.vol_period)
         
-        #self.stock_under_idx_mav_filter = self.datas[0].open < self.idx_mav  # Was unable to make this a filter
-
         # Timer to support rebalancing weekcarry over in case of holiday
         self.add_timer(
             name = "rebalance",
@@ -113,28 +135,31 @@ class MomentumStrategy(bt.Strategy):
     
     def notify_timer(self, timer, when, *args, **kwargs):
         if kwargs['name'] == 'rebalance':
-            # print("Rebalanceing at {}".format(when))
+            self.log.debug("Rebalanceing at {}".format(when))
             self.rebalance_portfolio()
         elif kwargs['name'] == 'reposition':
-            # print("Repositioning at {}".format(when))
+            self.log.debug("Repositioning at {}".format(when))
             self.rebalance_positions()
         else:
-            print("Unknown Timer at {}".format(when))
+            self.log.debug("Unknown Timer at {}".format(when))
 
     def prenext(self):
         # Populate d_with_len
         self.d_with_len = [d for d in self.stocks if len(d) >= self.p.stock_period]
+        self.log.debug("[prenext] Stocks with length: {}".format(len(self.d_with_len)))
         # call next() even when data is not available for all tickers
         self.next()
 
     def nextstart(self):
         # This is called exactly ONCE, when next is 1st called and defaults to
         # call `next`
+        self.log.debug("[nextstart] Setting All Stock to stocks with appropriate lenght")
         self.d_with_len = self.stocks  # all data sets fulfill the guarantees now
 
         self.next()  # delegate the work to next
 
     def next(self):
+        self.log.debug("Next")
         # converted code to use timers
         '''
         l = len(self)
@@ -147,7 +172,7 @@ class MomentumStrategy(bt.Strategy):
     def rebalance_portfolio(self):
         # only look at data that we can have indicators for 
         self.rankings = self.d_with_len
-
+        self.log.debug("[rebalance_portfolio] Rankings Length: {}".format(len(self.rankings)))
         #if no stocks are ready return   - Added but not sure if needed
         if(len(self.rankings) == 0):
             return
